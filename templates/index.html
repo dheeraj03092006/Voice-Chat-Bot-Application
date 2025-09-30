@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Chat & Voice Bot</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background: #f4f4f4;
+            margin: 0;
+            padding: 0;
+        }
+
+        .container {
+            max-width: 600px;
+            margin: 40px auto;
+            background: #fff;
+            border-radius: 8px;
+            box-shadow: 0 2px 8px #ccc;
+            padding: 24px;
+        }
+
+        h1 {
+            text-align: center;
+        }
+
+        #chat-box {
+            height: 300px;
+            overflow-y: auto;
+            border: 1px solid #ddd;
+            padding: 12px;
+            margin-bottom: 16px;
+            background: #fafafa;
+        }
+
+        .message {
+            margin: 8px 0;
+        }
+
+        .user {
+            color: #007bff;
+        }
+
+        .bot {
+            color: #28a745;
+        }
+
+        #input-area {
+            display: flex;
+            gap: 8px;
+        }
+
+        #message {
+            flex: 1;
+            padding: 8px;
+        }
+
+        button {
+            padding: 8px 16px;
+        }
+
+        #voice-btn {
+            background: #ffc107;
+            border: none;
+            color: #333;
+            border-radius: 4px;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <h1>Chat & Voice Bot</h1>
+        <div id="chat-box"></div>
+        <div id="input-area">
+            <input type="text" id="message" placeholder="Type your message...">
+            <button onclick="sendMessage()">Send</button>
+            <button id="voice-btn" onclick="startVoice()">🎤 Voice</button>
+            <button id="stop-voice-btn" onclick="stopVoice()"
+                style="display:none;background:#dc3545;color:#fff;border:none;border-radius:4px;">⏹ Stop</button>
+        </div>
+    </div>
+    <script>
+        function speakText(text) {
+            if ('speechSynthesis' in window) {
+                const utter = new SpeechSynthesisUtterance(text);
+                utter.lang = 'en-US';
+                window.speechSynthesis.speak(utter);
+            }
+        }
+
+        function appendMessage(sender, text) {
+            const chatBox = document.getElementById('chat-box');
+            const div = document.createElement('div');
+            div.className = 'message ' + sender;
+            div.textContent = (sender === 'user' ? 'You: ' : 'Bot: ') + text;
+            chatBox.appendChild(div);
+            chatBox.scrollTop = chatBox.scrollHeight;
+            if (sender === 'bot') speakText(text);
+        }
+
+        function sendMessage(msg) {
+            const input = document.getElementById('message');
+            if (msg === undefined) {
+                msg = input.value.trim();
+                input.value = '';
+            }
+            if (!msg) return;
+            appendMessage('user', msg);
+            fetch('/chat', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ message: msg })
+            })
+                .then(res => res.json())
+                .then(data => {
+                    appendMessage('bot', data.response);
+                })
+                .catch(() => appendMessage('bot', 'Error connecting to server.'));
+        }
+
+        document.getElementById('message').addEventListener('keydown', function (e) {
+            if (e.key === 'Enter') sendMessage();
+        });
+
+        let recognition;
+        function startVoice() {
+            if (!('webkitSpeechRecognition' in window) && !('SpeechRecognition' in window)) {
+                appendMessage('bot', 'Sorry, your browser does not support speech recognition.');
+                return;
+            }
+            const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+            recognition = new SpeechRecognition();
+            recognition.lang = 'en-US';
+            recognition.interimResults = false;
+            recognition.maxAlternatives = 1;
+            document.getElementById('voice-btn').disabled = true;
+            document.getElementById('stop-voice-btn').style.display = '';
+            appendMessage('user', '[Voice input started...]');
+            recognition.onresult = function (event) {
+                const transcript = event.results[0][0].transcript;
+                sendMessage(transcript);
+            };
+            recognition.onerror = function (event) {
+                appendMessage('bot', 'Voice error: ' + event.error);
+            };
+            recognition.onend = function () {
+                document.getElementById('voice-btn').disabled = false;
+                document.getElementById('stop-voice-btn').style.display = 'none';
+            };
+            recognition.start();
+        }
+
+        function stopVoice() {
+            if (recognition) {
+                recognition.stop();
+            }
+            document.getElementById('voice-btn').disabled = false;
+            document.getElementById('stop-voice-btn').style.display = 'none';
+            appendMessage('user', '[Voice input stopped]');
+        }
+    </script>
+</body>
+
+</html>
