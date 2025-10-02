@@ -1,17 +1,7 @@
 from dotenv import load_dotenv
-import time
 import os
-
-from langchain_core.prompts import ChatPromptTemplate
-from langchain_groq import ChatGroq
-from langchain.memory import ConversationBufferMemory
-from langchain.prompts import (
-    ChatPromptTemplate,
-    MessagesPlaceholder,
-    SystemMessagePromptTemplate,
-    HumanMessagePromptTemplate,
-)
-from langchain.chains import LLMChain
+from groq import Groq
+import sys
 
 load_dotenv()
 
@@ -19,35 +9,54 @@ class LanguageModelProcessor:
     def __init__(self):
         groq_api_key = os.getenv("GROQ_API_KEY")
         
-        if groq_api_key:
-            self.llm = ChatGroq(temperature=0, model_name="llama-3.1-8b-instant", groq_api_key=groq_api_key)
-        else:
+        if not groq_api_key:
             raise ValueError("GROQ_API_KEY not found in environment variables. Please set one.")
-
-        self.memory = ConversationBufferMemory(memory_key="chat_history", return_messages=True)
-
+        
+        self.client = Groq(api_key=groq_api_key)
+        self.model = "llama-3.1-8b-instant"
+        
         # Load Bot prompt
         try:
             with open('Bot_prompt.txt', 'r') as file:
-                Bot_prompt = file.read().strip()
+                self.bot_prompt = file.read().strip()
         except FileNotFoundError:
-            raise FileNotFoundError("Bot prompt file 'Bot_prompt.txt' not found. Please ensure it exists in the current directory.")
-
-        self.prompt = ChatPromptTemplate.from_messages([
-            SystemMessagePromptTemplate.from_template(Bot_prompt),
-            MessagesPlaceholder(variable_name="chat_history"),
-            HumanMessagePromptTemplate.from_template("{text}")
-        ])
-
-        self.conversation = LLMChain(
-            llm=self.llm,
-            prompt=self.prompt,
-            memory=self.memory
-        )
+            self.bot_prompt = "You are a helpful AI assistant. Respond in a friendly and helpful manner."
+        
+        # Store conversation history
+        self.conversation_history = []
 
     def process(self, text):
-        response = self.conversation.invoke({"text": text})
-        return response['text']
+        try:
+            # Add user message to history
+            self.conversation_history.append({"role": "user", "content": text})
+            
+            # Create messages for the API call
+            messages = [
+                {"role": "system", "content": self.bot_prompt}
+            ] + self.conversation_history
+            
+            # Keep only last 10 messages to avoid token limits
+            if len(messages) > 11:  # 1 system + 10 conversation messages
+                messages = [messages[0]] + messages[-10:]
+                self.conversation_history = self.conversation_history[-10:]
+            
+            # Get response from GROQ
+            response = self.client.chat.completions.create(
+                messages=messages,
+                model=self.model,
+                max_tokens=1000,
+                temperature=0.7
+            )
+            
+            ai_response = response.choices[0].message.content
+            
+            # Add AI response to history
+            self.conversation_history.append({"role": "assistant", "content": ai_response})
+            
+            return ai_response
+            
+        except Exception as e:
+            return f"Sorry, I encountered an error: {str(e)}"
 
 
 class ConversationManager:
